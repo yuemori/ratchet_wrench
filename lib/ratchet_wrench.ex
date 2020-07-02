@@ -81,44 +81,83 @@ defmodule RatchetWrench do
   end
 
   def begin_transaction(connection, session) do
-    json = %{options: %{readWrite: %{}} }
-    case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_begin_transaction(connection, session.name, [{:body, json}]) do
-      {:ok, transaction} -> {:ok, transaction}
-      {:error, reason} -> {:error, Poison.Parser.parse!(reason.body, %{})}
-    end
+    metadata = %{connection: connection, session: session}
+    :telemetry.span(
+      [:ratchet_wrench, :begin],
+      metadata,
+      fn ->
+        json = %{options: %{readWrite: %{}} }
+        case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_begin_transaction(connection, session.name, [{:body, json}]) do
+          {:ok, transaction} ->
+            {{:ok, transaction}, metadata}
+          {:error, reason} ->
+            {{:error, Poison.Parser.parse!(reason.body, %{})}, metadata}
+        end
+      end
+    )
   end
 
   def rollback_transaction(connection, session, transaction) do
-    json = %{transactionId: transaction.id}
-    case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_rollback(connection, session.name, [{:body, json}]) do
-      {:ok, empty} -> {:ok, empty}
-      {:error, reason} -> {:error, Poison.Parser.parse!(reason.body, %{})}
-    end
+    metadata = %{transaction_id: transaction.id, connection: connection, session: session}
+    :telemetry.span(
+      [:ratchet_wrench, :rollback],
+      metadata,
+      fn ->
+        json = %{transactionId: transaction.id}
+
+        case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_rollback(connection, session.name, [{:body, json}]) do
+          {:ok, empty} ->
+            {{:ok, empty}, metadata}
+          {:error, reason} ->
+            {{:error, Poison.Parser.parse!(reason.body, %{})}, metadata}
+        end
+      end
+    )
   end
 
   def commit_transaction(connection, session, transaction) do
-    RatchetWrench.Logger.info("Commit transaction request, transaction_id: #{transaction.id}")
-    json = %{transactionId: transaction.id}
-    case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_commit(connection, session.name, [{:body, json}]) do
-      {:ok, commit_response} ->
-        RatchetWrench.Logger.info("Commited transaction, transaction_id: #{transaction.id}, time_stamp: #{commit_response.commitTimestamp}")
-        {:ok, commit_response}
-      {:error, reason} -> {:error, Poison.Parser.parse!(reason.body, %{})}
-    end
+    metadata = %{transaction_id: transaction.id}
+    :telemetry.span(
+      [:ratchet_wrench, :commit],
+      metadata,
+      fn ->
+        json = %{transactionId: transaction.id}
+
+        case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_commit(connection, session.name, [{:body, json}]) do
+          {:ok, commit_response} ->
+            {{:ok, commit_response}, Map.put(metadata, :response, commit_response)}
+          {:error, reason} ->
+            error = Poison.Parser.parse!(reason.body, %{})
+            {{:error, error}, Map.put(metadata, :error, error)}
+        end
+      end
+    )
   end
 
   def select_execute_sql(sql, params) do
-    json = %{sql: sql, params: params}
     connection = RatchetWrench.token |> RatchetWrench.connection
     session = RatchetWrench.SessionPool.checkout()
 
-    case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_execute_sql(connection, session.name, [{:body, json}]) do
-      {:ok, result_set} ->
-        RatchetWrench.SessionPool.checkin(session)
-        {:ok, result_set}
-      {:error, reason} ->
-        RatchetWrench.SessionPool.checkin(session)
-        {:error, Poison.Parser.parse!(reason.body, %{})}
+    metadata = %{sql: sql, params: params, connection: connection, session: session}
+
+    try do
+      :telemetry.span(
+        [:ratchet_wrench, :execute_sql],
+        metadata,
+        fn ->
+          json = %{sql: sql, params: params}
+
+          case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_execute_sql(connection, session.name, [{:body, json}]) do
+            {:ok, result_set} ->
+              {{:ok, result_set}, Map.put(metadata, :result_set, result_set)}
+            {:error, reason} ->
+              error = Poison.Parser.parse!(reason.body, %{})
+              {{:error, Poison.Parser.parse!(reason.body, %{})}, Map.put(metadata, :error, error)}
+          end
+        end
+      )
+    after
+      RatchetWrench.SessionPool.checkin(session)
     end
   end
 
@@ -138,11 +177,24 @@ defmodule RatchetWrench do
   end
 
   def do_execute_sql(connection, session, transaction, json) do
-    case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_execute_sql(connection, session.name, [{:body, json}]) do
-      {:ok, result_set} ->
-        {:ok, result_set}
-      {:error, reason} -> error_googleapi(connection, session, transaction, reason)
-    end
+    sql = Map.get(json, :sql)
+    params = Map.get(json, :params)
+
+    metadata = %{connection: connection, session: session, transaction: transaction, sql: sql, params: params}
+
+    :telemetry.span(
+      [:ratchet_wrench, :execute_sql],
+      metadata,
+      fn ->
+        case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_execute_sql(connection, session.name, [{:body, json}]) do
+          {:ok, result_set} ->
+            {{:ok, result_set}, Map.put(metadata, :result_set, result_set)}
+          {:error, reason} ->
+            error = Poison.Parser.parse!(reason.body, %{})
+            {error_googleapi(connection, session, transaction, reason), Map.put(metadata, :error, error)}
+        end
+      end
+    )
   end
 
   def error_googleapi(connection, session, transaction, reason) do
