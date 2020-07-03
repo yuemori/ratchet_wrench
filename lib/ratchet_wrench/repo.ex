@@ -1,11 +1,11 @@
 defmodule RatchetWrench.Repo do
-  def get(module, pk_value_list) do
+  def get(module, pk_value_list, opts \\ []) do
     valid_pk_value_list!(module, pk_value_list)
 
     sql = get_sql(module)
     params = params_pk_map(module, pk_value_list)
 
-    {:ok, result_set} = RatchetWrench.select_execute_sql(sql, params)
+    {:ok, result_set} = RatchetWrench.select_execute_sql(sql, params, opts)
 
     if result_set.rows == nil do
       nil
@@ -50,11 +50,11 @@ defmodule RatchetWrench.Repo do
     end
   end
 
-  def where(struct, where_string, params) do
+  def where(struct, where_string, params, opts \\ []) do
     table_name = struct.__struct__.__table_name__
     sql = "SELECT * FROM #{table_name} WHERE #{where_string}"
 
-    case RatchetWrench.select_execute_sql(sql, params) do
+    case RatchetWrench.select_execute_sql(sql, params, opts) do
       {:ok, result_set} ->
         if result_set.rows == nil do
           {:ok, []}
@@ -66,13 +66,13 @@ defmodule RatchetWrench.Repo do
   end
 
 
-  def insert(struct) do
+  def insert(struct, opts \\ []) do
     struct = set_timestamps(struct)
     sql = insert_sql(struct)
     params = params_insert_values_map(struct)
     param_types = param_types(struct.__struct__)
 
-    case RatchetWrench.execute_sql(sql, params, param_types) do
+    case RatchetWrench.execute_sql(sql, params, param_types, 1, opts) do
       {:ok, _} -> {:ok, struct}
       {:error, reason} -> {:error, reason}
     end
@@ -131,13 +131,13 @@ defmodule RatchetWrench.Repo do
        end)
   end
 
-  def set(struct) do
+  def set(struct, opts \\ []) do
     struct = set_update_timestamp(struct)
     sql = update_sql(struct)
     params = params_update_values_map(struct)
     param_types = param_types(struct.__struct__)
 
-    case RatchetWrench.execute_sql(sql, params, param_types) do
+    case RatchetWrench.execute_sql(sql, params, param_types, 1, opts) do
       {:ok, _} -> {:ok, struct}
       {:error, reason} -> {:error, reason}
     end
@@ -169,14 +169,14 @@ defmodule RatchetWrench.Repo do
     end)
   end
 
-  def delete(module, pk_value_list) do
+  def delete(module, pk_value_list, opts \\ []) do
     valid_pk_value_list!(module, pk_value_list)
 
     sql = delete_sql(module)
     params = params_pk_map(module, pk_value_list)
     param_types = param_types(module)
 
-    case RatchetWrench.execute_sql(sql, params, param_types) do
+    case RatchetWrench.execute_sql(sql, params, param_types, opts) do
       {:ok, result_set} -> {:ok, result_set}
       {:error, reason} -> {:error, reason}
     end

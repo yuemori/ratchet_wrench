@@ -134,7 +134,7 @@ defmodule RatchetWrench do
     )
   end
 
-  def select_execute_sql(sql, params) do
+  def select_execute_sql(sql, params, opts \\ []) do
     connection = RatchetWrench.token |> RatchetWrench.connection
     session = RatchetWrench.SessionPool.checkout()
 
@@ -145,7 +145,8 @@ defmodule RatchetWrench do
         [:ratchet_wrench, :execute_sql],
         metadata,
         fn ->
-          json = %{sql: sql, params: params}
+          query_mode = Keyword.get(opts, :query_mode, "NORMAL")
+          json = %{sql: sql, params: params, queryMode: query_mode}
 
           case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_execute_sql(connection, session.name, [{:body, json}]) do
             {:ok, result_set} ->
@@ -161,11 +162,13 @@ defmodule RatchetWrench do
     end
   end
 
-  def execute_sql(sql, params, param_types, seqno \\ 1) when is_binary(sql) and is_map(params) and is_integer(seqno)  do
+  def execute_sql(sql, params, param_types, seqno \\ 1, opts \\ []) when is_binary(sql) and is_map(params) and is_integer(seqno)  do
     connection = RatchetWrench.token |> RatchetWrench.connection
     session = RatchetWrench.SessionPool.checkout()
     {:ok, transaction} = RatchetWrench.begin_transaction(connection, session)
-    json = %{seqno: seqno, transaction: %{id: transaction.id}, sql: sql, params: params, paramTypes: param_types}
+
+    query_mode = Keyword.get(opts, :query_mode, "NORMAL")
+    json = %{seqno: seqno, transaction: %{id: transaction.id}, sql: sql, params: params, paramTypes: param_types, queryMode: query_mode}
 
     case do_execute_sql(connection, session, transaction, json) do
       {:ok, result_set} ->
