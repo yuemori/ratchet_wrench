@@ -57,8 +57,8 @@ defmodule RatchetWrench do
     json = %{sessionCount: session_count}
     case GoogleApi.Spanner.V1.Api.Projects.spanner_projects_instances_databases_sessions_batch_create(connection, database(), [{:body, json}]) do
       {:ok, response} -> response.session
-      {:error, _reason} ->
-        raise "Database config error. Check env `RATCHET_WRENCH_DATABASE` or config"
+      {:error, reason} ->
+        raise "Database config error. Check env `RATCHET_WRENCH_DATABASE` or config. details: #{inspect(reason)}"
     end
   end
 
