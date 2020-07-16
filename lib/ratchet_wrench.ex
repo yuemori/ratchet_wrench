@@ -231,22 +231,24 @@ defmodule RatchetWrench do
   end
 
   def transaction(callback) when is_function(callback) do
-    transaction = RatchetWrench.TransactionManager.begin()
-    try do
-      result = callback.()
-      if RatchetWrench.TransactionManager.exist_transaction? do
-        if transaction.skip == 0 do
+    if RatchetWrench.TransactionManager.exist_transaction? do
+      callback.()
+    else
+      RatchetWrench.TransactionManager.begin()
+      try do
+        result = callback.()
+        if RatchetWrench.TransactionManager.exist_transaction? do
           {:ok, _commit_response} = RatchetWrench.TransactionManager.commit()
         end
+        result
+      rescue
+        err in _ ->
+          Logger.error(Exception.format(:error, err, __STACKTRACE__))
+          if RatchetWrench.TransactionManager.exist_transaction? do
+            RatchetWrench.TransactionManager.rollback()
+          end
+          {:error, err}
       end
-      result
-    rescue
-      err in _ ->
-        Logger.error(Exception.format(:error, err, __STACKTRACE__))
-        if RatchetWrench.TransactionManager.exist_transaction? do
-          {:ok, _empty} = RatchetWrench.TransactionManager.rollback()
-        end
-        {:error, err}
     end
   end
 end
