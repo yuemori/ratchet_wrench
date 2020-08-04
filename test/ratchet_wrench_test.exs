@@ -274,7 +274,7 @@ defmodule RatchetWrenchTest do
 
       assert RatchetWrench.TransactionManager.exist_transaction? == true
 
-      {:ok, _empty} = RatchetWrench.TransactionManager.rollback()
+      raise "rollback"
 
       assert RatchetWrench.TransactionManager.exist_transaction? == true
     end
@@ -355,9 +355,9 @@ defmodule RatchetWrenchTest do
                                                                 first_name: "trans func #{singer_id_b}"})
 
         assert RatchetWrench.TransactionManager.exist_transaction?()
-    end
+      end
 
-      assert err == :rollback
+      # assert err == :rollback
       assert Enum.count(RatchetWrench.SessionPool.pool.checkout) == 0
 
     end) =~ "singers already exists"
